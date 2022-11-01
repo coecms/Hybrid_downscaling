@@ -1,4 +1,5 @@
 ## Build a Multi layer perceptron model for each grid to downscale Evapotranspiration dataset by a scale factor of 9, from 12km to 1.5 km
+## nvtx https://nvtx.readthedocs.io/en/latest/index.html
 
 from operator import index
 from random import sample
@@ -16,6 +17,7 @@ import functions as functions # Functions used for evaluating the model
 import train as train # contains the training functions
 import time
 import numpy as np
+import nvtx
 seed = 100
 
 # input/output directories
@@ -50,13 +52,14 @@ for coarse_grid in train_grids:
     in_sample_df = pd.DataFrame()
     
     # read yearly files for all training years and concatenate them into one big training dataframe 
-    for year in train_years:
-       
-        filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
-        single_year_df = pd.read_csv(filename_dataset)
-        # Multi layer perceptron doesn't like Null values
-        single_year_df = single_year_df.dropna(axis=0)
-        in_sample_df = pd.concat([in_sample_df, single_year_df])
+    with nvtx.annotate("for_loop_10Y", color="green"):
+        for year in train_years:
+        
+            filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
+            single_year_df = pd.read_csv(filename_dataset)
+            # Multi layer perceptron doesn't like Null values
+            single_year_df = single_year_df.dropna(axis=0)
+            in_sample_df = pd.concat([in_sample_df, single_year_df])
 
     #  # Keep only the predictors and normalise the training data
     scaler = StandardScaler()
@@ -89,22 +92,25 @@ for coarse_grid in train_grids:
     optimizer = torch.optim.Adam(mlp.parameters(), lr=1e-4)
     
     # train the model and track the time needed for training
+
     start_time = time.time()
     mlp = train.train_mlp(mlp, trainloader, optimizer, loss_function, seed, epoch_number, batch_size)
     #mlp = torch.load(filename_model), later, I can load the saved model using torch.load
     
-    # print training time
-    print('number of epochs is %s' % epoch_number)
-    training_duration = time.time() - start_time
-    print("--- %s minutes ---" % round(training_duration/60, 1))
+    with nvtx.annotate("MLP_1Grid", color="green"):
+        # print training time
+        print('number of epochs is %s' % epoch_number)
+        training_duration = time.time() - start_time
+        print("--- %s minutes ---" % round(training_duration/60, 1))
 
     # save the model 
     torch.save(mlp, filename_model)
 
     # use the model to predict on the training data, do necessary transfer of data from cpu to GPU and vice versa 
-    X_train = torch.from_numpy(X).cuda()
-    predictions = mlp(X_train.float()).cpu()
-    predictions = predictions.detach().numpy()
+    with nvtx.annotate("Predict_1G10Y", color="green"):
+        X_train = torch.from_numpy(X).cuda()
+        predictions = mlp(X_train.float()).cpu()
+        predictions = predictions.detach().numpy()
     # add a column for the predicted values
     in_sample_df['MLP'] = predictions
 
@@ -117,23 +123,25 @@ for coarse_grid in train_grids:
     # read yearly files for all training years and concatenate them into one big training dataframe 
     out_sample_df = pd.DataFrame()
     
-    for year in test_years:
+    with nvtx.annotate("for_loop_read19Y_1G", color="green"):
+        for year in test_years:
 
-        filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
-        single_year_df = pd.read_csv(filename_dataset)
-        # Multi layer perceptron doesn't like Null values
-        single_year_df = single_year_df.dropna(axis=0)
-        out_sample_df = pd.concat([out_sample_df, single_year_df])
+            filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
+            single_year_df = pd.read_csv(filename_dataset)
+            # Multi layer perceptron doesn't like Null values
+            single_year_df = single_year_df.dropna(axis=0)
+            out_sample_df = pd.concat([out_sample_df, single_year_df])
     
     # Keep only the predictors
     X_test = out_sample_df[featuresList]
     X_test = scaler.transform(X_test) 
 
     # make prediction, do necessary transfer of data from/to GPU and CPU
-    print("predicting ...")
-    X_test = torch.from_numpy(X_test).cuda() # to GPU
-    predictions = mlp(X_test.float()).cpu() # to CPU
-    predictions = predictions.detach().numpy()
+    with nvtx.annotate("Predict_1G19Y", color="green"):
+        print("predicting ...")
+        X_test = torch.from_numpy(X_test).cuda() # to GPU
+        predictions = mlp(X_test.float()).cpu() # to CPU
+        predictions = predictions.detach().numpy()
     # add a column for the predicted values
     out_sample_df['MLP'] = predictions
 
@@ -148,6 +156,7 @@ for coarse_grid in train_grids:
     all_sample_df.to_csv(filename_test_1990_2018, index=False)
 
 
+   
     # ''''' Evaluation at the testing years, compare predicted fine gridcells with target gridcells
     fine_grid_cells = out_sample_df['ref_fine_cell'].unique().tolist()   
    
