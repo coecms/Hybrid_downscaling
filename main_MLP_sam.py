@@ -45,7 +45,7 @@ featuresList = config.predictors
 
 # input/output directories
 load_dir_dataset = "/scratch/vp91/CLEX/Training_Testing/"
-dir_model = "/scratch/vp91/CLEX/Models/"
+dir_model = "/scratch/vp91/CLEX/Models_sam/"
 pred_eval = "/scratch/vp91/CLEX/Prediction_Evaluation/"
 
 all_years = list(range(1990,2019)) # BARRA dataset has 29 years 1990 - 2018
@@ -62,48 +62,25 @@ if experiment == 'exp1':
     test_years = list(set(all_years) - set(train_years)) 
 
 #-----------------------------------------------------------
-#%%
-# Build a new model for each coarse grid in train_grids
-for coarse_grid in train_grids:
-    print(coarse_grid)
-    
-    #-----------------------------------------------------------
 
-    # initialisation, dataframe containing all the training samples
-    in_sample_df = pd.DataFrame()
+# Creating functions to make the code more readable:
 
-    # read yearly files for all training years and concatenate them into one big training dataframe 
-    with nvtx.annotate("for_loop_10Y", color="green"):
-        for year in train_years:
-        
-            filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
-            single_year_df = pd.read_csv(filename_dataset)
-            # Multi layer perceptron doesn't like Null values
-            single_year_df = single_year_df.dropna(axis=0)
-            in_sample_df = pd.concat([in_sample_df, single_year_df])
+# Read in data per year and concatanate all years together.
+@nvtx.annotate("file_concat", color="purple")
+def file_concat(coarse_grid, y):
 
-    #  # Keep only the predictors and normalise the training data
-    scaler = StandardScaler()
-    X = in_sample_df[featuresList]
-    X = scaler.fit_transform(X) 
-    y  = in_sample_df[['target']].to_numpy()
+    sample_df = pd.concat([pd.read_csv(load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)) for year in y], axis=0).dropna(axis=0)
 
-    
-    print('shape of X is ', X.shape)
+    return sample_df
 
-    #-----------------------------------------------------------
-    
+@nvtx.annotate("train_model", color="green")
+def train_model(X, Y):
+
     torch.manual_seed(seed)
     # convert our dataset to a PyTorch-compatible dataset. Batch and shuffle the dataset first, so that no hidden patterns in data collection can disturb model training. 
-    dataset = BarraDataset(X, y)
+    dataset = BarraDataset(X, Y)
     trainloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-
-    # This is where I am going to save the output model
-    filename_model =  dir_model + "MLP_%s_epoch%s_batch%s_%s_%s.pth" %( coarse_grid, epoch_number, batch_size, experiment, version)
-    
-   
-    torch.manual_seed(seed)
     # Initialize the MLP
     mlp = MLP_model().cuda() 
     # Define the loss function and optimizer  
@@ -113,72 +90,23 @@ for coarse_grid in train_grids:
     ## choose ADAM otimiser (standard) with common learning rate equal to 1e-4
     optimizer = torch.optim.Adam(mlp.parameters(), lr=1e-4)
     
-    # train the model and track the time needed for training
-
-    start_time = time.time()
     mlp = train.train_mlp(mlp, trainloader, optimizer, loss_function, seed, epoch_number, batch_size)
-    #mlp = torch.load(filename_model), later, I can load the saved model using torch.load
-    
-    with nvtx.annotate("MLP_1Grid", color="green"):
-        # print training time
-        print('number of epochs is %s' % epoch_number)
-        training_duration = time.time() - start_time
-        print("--- %s minutes ---" % round(training_duration/60, 1))
 
-    # save the model 
-    torch.save(mlp, filename_model)
+    return mlp
 
-    # use the model to predict on the training data, do necessary transfer of data from cpu to GPU and vice versa 
-    with nvtx.annotate("Predict_1G10Y", color="green"):
-        X_train = torch.from_numpy(X).cuda()
-        predictions = mlp(X_train.float()).cpu()
-        predictions = predictions.detach().numpy()
-    # add a column for the predicted values
-    in_sample_df['MLP'] = predictions
+@nvtx.annotate("predict", color="blue")
+def predict(X, mlp):
+    # use the model to predict on the training data
+    # transfer of data from cpu to GPU and vice versa 
+    X_train = torch.from_numpy(X).cuda()
+    predictions = mlp(X_train.float()).cpu()
+    predictions = predictions.detach().numpy()
 
-     # Keep only date, target and predicted. Later, combine this dataframe with the testing predictions and save the combined file
-    in_sample_df = in_sample_df[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
+    return predictions
 
-    
-    ## ''''''''  evaluate the model in the testing years & save predictions for all years 1990 - 2018 in a single file
-    
-    # read yearly files for all training years and concatenate them into one big training dataframe 
-    out_sample_df = pd.DataFrame()
-    
-    with nvtx.annotate("for_loop_read19Y_1G", color="green"):
-        for year in test_years:
-
-            filename_dataset = load_dir_dataset +'%s_%s_predictors_target.csv' %(coarse_grid, year)
-            single_year_df = pd.read_csv(filename_dataset)
-            # Multi layer perceptron doesn't like Null values
-            single_year_df = single_year_df.dropna(axis=0)
-            out_sample_df = pd.concat([out_sample_df, single_year_df])
-    
-    # Keep only the predictors
-    X_test = out_sample_df[featuresList]
-    X_test = scaler.transform(X_test) 
-
-    # make prediction, do necessary transfer of data from/to GPU and CPU
-    with nvtx.annotate("Predict_1G19Y", color="green"):
-        print("predicting ...")
-        X_test = torch.from_numpy(X_test).cuda() # to GPU
-        predictions = mlp(X_test.float()).cpu() # to CPU
-        predictions = predictions.detach().numpy()
-    # add a column for the predicted values
-    out_sample_df['MLP'] = predictions
-
-    # Keep only date, target and predicted
-    out_sample_df = out_sample_df[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
-
-    # combine predicted data at training and testing data
-    all_sample_df = pd.concat([in_sample_df, out_sample_df], ignore_index=True)
-    
-    filename_test_1990_2018 = pred_eval + "MLP_%s_transfer_%s_%sepochs_%sbatch_pred_1990_2018_%s_%s.csv" %(coarse_grid, coarse_grid, epoch_number, batch_size, experiment, config.version)
-
-    all_sample_df.to_csv(filename_test_1990_2018, index=False)
-
-
-   
+@nvtx.annotate("evaluate", color="red")
+def evaluate(data, coarse_grid):
+    out_sample_df = data
     # ''''' Evaluation at the testing years, compare predicted fine gridcells with target gridcells
     fine_grid_cells = out_sample_df['ref_fine_cell'].unique().tolist()   
    
@@ -200,3 +128,67 @@ for coarse_grid in train_grids:
     # save the results of evaluation 
     filename_evaluation_mean =  pred_eval + 'MLP_%s_transform_mean_testing_perf_trained_on_%sgrid_epoch%s_batch%s_%s_%s.csv' %(coarse_grid, coarse_grid, epoch_number, batch_size, experiment, version)
     all_mean_eval_df.to_csv(filename_evaluation_mean, index=False)
+
+#-----------------------------------------------------------
+
+def main():
+    # Build a new model for each coarse grid in train_grids
+    for coarse_grid in train_grids:
+
+        #-----------------------------------------------------------
+        # Create the input data:
+        in_data = file_concat(coarse_grid, all_years)
+    
+        #  # Keep only the predictors and normalise the training data
+        scaler = StandardScaler()
+        X = in_data[featuresList]
+        X = scaler.fit_transform(X) 
+        Y  = in_data[['target']].to_numpy()
+        #-----------------------------------------------------------
+
+        # Train the model with the data:
+        torch.manual_seed(seed)
+        mlp = train_model(X, Y)
+
+        #-----------------------------------------------------------
+
+        # save the model:
+        filename_model =  dir_model + "MLP_%s_epoch%s_batch%s_%s_%s.pth" %( coarse_grid, epoch_number, batch_size, experiment, version) 
+        torch.save(mlp, filename_model)
+
+        #-----------------------------------------------------------
+        # add a column for the predicted values
+        in_data['MLP'] = predict(X, mlp)
+
+        # Keep only date, target and predicted. Later, combine this dataframe with the testing predictions and save the combined file
+        in_sample_df = in_data[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
+
+        #-----------------------------------------------------------
+
+        ## ''''''''  evaluate the model in the testing years & save predictions for all years 1990 - 2018 in a single file
+
+        # read yearly files for all training years and concatenate them into one big training dataframe 
+        # Call data function:
+        test_data = file_concat(coarse_grid, test_years)
+
+        # Keep only the predictors
+        X_test = test_data[featuresList]
+        X_test = scaler.transform(X_test) 
+
+        # add a column for the predicted values
+        test_data['MLP'] = predict(X_test, mlp)
+
+        # Keep only date, target and predicted
+        out_sample_df = test_data[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
+
+        # combine predicted data at training and testing data
+        all_sample_df = pd.concat([in_sample_df, out_sample_df], ignore_index=True)
+        filename_test_1990_2018 = pred_eval + "MLP_%s_transfer_%s_%sepochs_%sbatch_pred_1990_2018_%s_%s.csv" %(coarse_grid, coarse_grid, epoch_number, batch_size, experiment, config.version)
+        all_sample_df.to_csv(filename_test_1990_2018, index=False)
+
+        # ''''' Evaluation at the testing years, compare predicted fine gridcells with target gridcells
+        evaluate(out_sample_df, coarse_grid)
+
+if __name__ == "__main__":
+    
+    main()

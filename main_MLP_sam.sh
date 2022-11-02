@@ -16,10 +16,8 @@ eval "$(conda shell.bash hook)"
 conda activate /g/data3/hh5/public/apps/miniconda3/envs/pytorch-gpu6
 module load nvidia-hpc-sdk/22.5
 
+cd /scratch/vp91/CLEX/ML_downscaling/
 
-cd /scratch/vp91/CLEX/
-
-nsys profile -t "cuda,osrt,nvtx" -o outputfile_sam -w "true" python3 main_MLP.py
-#python main_MLP.py
+nsys profile -t cuda,nvtx,osrt -o outputfile_sam_func_new --force-overwrite=true --stats=true -w "true" python3 main_MLP_sam.py
 
 echo "bye"
