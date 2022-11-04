@@ -51,7 +51,7 @@ pred_eval = "/scratch/vp91/CLEX/Prediction_Evaluation_accelerated/"
 all_years = list(range(1990,2019)) # BARRA dataset has 29 years 1990 - 2018
 
 # Selected coarse gridcells which I want to downscale. Training files are prepared per coarse grid and year
-train_grids = [642, 714, 720, 1207,  1233, 1682, 1728, 2348, 2817, 2855, 3002, 3114, 3346, 3809,  4233, 4322, 4615, 4623, 6081, 6145, 642, 714, 720, 1207,  1233, 1682, 1728, 2348, 2817, 2855]
+train_grids = [642, 714, 720, 1207,  1233, 1682, 1728, 2348, 2817, 2855, 3002, 3114, 3346, 3809,  4233, 4322, 4615, 4623, 6081, 6145, 642, 714, 720, 1207,  1233]#, 1682, 1728, 2348, 2817, 2855, 3002, 3114, 3346, 3809,  4233]
 
 # Number of processes that will run in parallel
 num_processes =  len(train_grids)

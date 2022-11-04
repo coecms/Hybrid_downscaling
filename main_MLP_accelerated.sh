@@ -3,11 +3,11 @@
 #PBS -P vp91
 #PBS -q gpuvolta
 #PBS -q dgxa100
-#PBS -l ncpus=32
-#PBS -l ngpus=2
-#PBS -l mem=160GB
+#PBS -l ncpus=16
+#PBS -l ngpus=1
+#PBS -l mem=120GB
 #PBS -l jobfs=100GB
-#PBS -l walltime=15:00
+#PBS -l walltime=1:15:00
 #PBS -l wd
 #PBS -l storage=gdata/hh5+scratch/vp91
 
