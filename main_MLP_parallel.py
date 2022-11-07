@@ -1,4 +1,12 @@
 ## Build a Multi layer perceptron model for each grid to downscale Evapotranspiration dataset by a scale factor of 9, from 12km to 1.5 km
+
+## Code created by Sanaa Hobeichi, Sam Green, and Nidhi Nishant.
+## Added ability to run mulitple grids in parallel over 1 GPU.
+
+## Change Log:
+# - Created 04/11/22
+# - Tidied up 07/11/22
+
 #-----------------------------------------------------------
 
 # Normal libraries:
@@ -28,7 +36,6 @@ from mlp_model import MLP_model # This is where I defined the MLP model
 from functions import BarraDataset # Convert the data into torch and move it to the GPU
 import functions as functions # Functions used for evaluating the model
 import train as train # contains the training functions
-
 
 
 #-----------------------------------------------------------
@@ -77,7 +84,6 @@ def file_concat(coarse_grid, y):
     return sample_df
 
 def train_predict_evaluate(mlp, trainloader, filename_model, current_grid, scaler):
-
             
     mlp = train.train_mlp_mp(mlp, trainloader, seed, epoch_number, batch_size, filename_model)
 
@@ -183,6 +189,7 @@ def main():
         # Name of the model
         filename_model =  dir_model + "MLP_%s_epoch%s_batch%s_%s_%s.pth" %( coarse_grid, epoch_number, batch_size, experiment, version) 
 
+        # Append all the data to lists so that each grid can be loaded into its own thread.
         trainloader_list.append(trainloader)
         filename_model_list.append(filename_model)
         mlp_list.append(mlp)
@@ -207,44 +214,8 @@ def main():
     #-----------------------------------------------------------
     
     print(num_processes)
-    
 
-       
-                
-
-        #-----------------------------------------------------------
-        # # add a column for the predicted values
-        # in_data['MLP'] = predict(X, mlp)
-
-        # # Keep only date, target and predicted. Later, combine this dataframe with the testing predictions and save the combined file
-        # in_sample_df = in_data[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
-
-        # #-----------------------------------------------------------
-
-        # ## ''''''''  evaluate the model in the testing years & save predictions for all years 1990 - 2018 in a single file
-
-        # # read yearly files for all testing years and concatenate them into one big testing dataframe 
-        # # Call data function:
-        # test_data = file_concat(coarse_grid, test_years)
-
-        # # Keep only the predictors
-        # X_test = test_data[featuresList]
-        # X_test = scaler.transform(X_test) 
-
-        # # add a column for the predicted values
-        # test_data['MLP'] = predict(X_test, mlp)
-
-        # # Keep only date, target and predicted
-        # out_sample_df = test_data[['ref_fine_cell', 'year', 'month', 'day','target', 'MLP']]
-
-        # # combine predicted data at training and testing data
-        # all_sample_df = pd.concat([in_sample_df, out_sample_df], ignore_index=True)
-        # filename_test_1990_2018 = pred_eval + "MLP_%s_transfer_%s_%sepochs_%sbatch_pred_1990_2018_%s_%s.csv" %(coarse_grid, coarse_grid, epoch_number, batch_size, experiment, config.version)
-        # all_sample_df.to_csv(filename_test_1990_2018, index=False)
-
-        # # ''''' Evaluation at the testing years, compare predicted fine gridcells with target gridcells
-        # evaluate(out_sample_df, coarse_grid)
-
+# Run the script:
 if __name__ == "__main__":
     
     main()
