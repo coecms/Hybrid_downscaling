@@ -3,6 +3,14 @@ Downscaling climate model using GPU-enabled machine learning.
 
 Updated: 07/11/22
 
+# Paper info:
+
+
+
+
+
+# Code:
+
 Two machine learning methods were used to approach this task. The first method uses a Multi layer perceptron (MLP) model using pytorch The second method uses a multivariate linear regression model and Random Forest (MLR_RF) using Scikit-learn.
 
 The serial version of both methods work fine and have comparable results, they're just slow to run. The pytorch method has received the most recent development in terms of speeding-up but the scikit-learn method will be worked on in the future using RAPIDs. 
