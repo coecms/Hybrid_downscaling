@@ -1,4 +1,4 @@
-# ML Downscaling
+# Hybrid Downscaling
 Downscaling climate model using GPU-enabled machine learning.
 
 Updated: 07/11/22
