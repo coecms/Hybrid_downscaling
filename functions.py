@@ -1,100 +1,132 @@
-
+import config
 import torch
-from torch import nn
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
-from torch.utils.data import DataLoader
 from sklearn.metrics import mean_squared_error 
 import hydroeval as he
 
-# Convert the data to the right format
-class BarraDataset(torch.utils.data.Dataset):
-  
+class MLP_model(torch.nn.Module):
 
-  def __init__(self, X, y, scale_data=False): 
-    if not torch.is_tensor(X) and not torch.is_tensor(y):
-      # Apply scaling if not applied elsewhere
-      if scale_data:
-          X = StandardScaler().fit_transform(X)
-          print('scale')
-      self.X = torch.from_numpy(X).cuda()
-      self.y = torch.from_numpy(y).cuda()
+## init the superclass
+  def __init__(self):
+    super().__init__()
+    '''
+    input first flows through the first layer, followed by the second, followed by..
+    '''
+    self.layers = torch.nn.Sequential(
+      torch.nn.Linear(config.l0, config.l1),
+      torch.nn.ReLU(),
+      torch.nn.Linear(config.l1, config.l2),
+      torch.nn.ReLU(),
+      torch.nn.Linear(config.l2, 1)
+    ).cuda()
 
-  def __len__(self):
-      return len(self.X)
-
-  def __getitem__(self, i):
-      return self.X[i], self.y[i]
-
-# Calculate the metric of performance prediction against target
-def testing_performance(test_df, current_model, year):
-    kge, r, alpha, beta = he.evaluator(he.kge, test_df['target'].to_numpy(), test_df[current_model].to_numpy())
-    correlation = test_df['target'].corr(test_df[current_model])
-    rmse = mean_squared_error(test_df['target'], test_df[current_model], squared = False)
-    describe_df = test_df[['target',current_model]].describe()
-
-
-    columns = ['year','kge', 'r', 'alpha', 'beta', 'cor', 'rmse', 'mean_target', 'mean_pred',
-    'sd_target', 'sd_pred', 'min_target', 'min_pred',
-    'perc25_target', 'perc25_pred', 'perc50_target', 'perc50_pred',
-    'perc75_target', 'perc75_pred', 'max_target', 'max_pred' ]
-    data = [[year, float(kge), float(r), float(alpha), float(beta), correlation, rmse, describe_df.iat[1,0], describe_df.iat[1,1],
-    describe_df.iat[2,0], describe_df.iat[2,1], describe_df.iat[3,0], describe_df.iat[3,1],
-    describe_df.iat[4,0], describe_df.iat[4,1], describe_df.iat[5,0], describe_df.iat[5,1],
-    describe_df.iat[6,0], describe_df.iat[6,1],describe_df.iat[7,0], describe_df.iat[7,1]]]
-
-    eval_data = pd.DataFrame(data)
-    eval_data.columns = columns
-
-    return(eval_data)
     
-## Manually define a loss function -- I ended up not using this
-def custom_loss_function(output, target):
-    square_difference = torch.square(output - target)
-    mean_square_difference = torch.mean(square_difference)
-    root_mean_square_difference =torch.sqrt(mean_square_difference)
-
-    min_output = torch.min(output)
-    min_target = torch.min(target)
-    min_difference = torch.abs( min_output - min_target)
-
-    max_output = torch.max(output)
-    max_target = torch.max(target)
-    max_difference = torch.abs( max_output - max_target)
-
-    sd_output = torch.std(output)
-    sd_target = torch.std(target)
-    sd_difference = torch.abs(sd_output - sd_target)
-
-    loss_value = 0.1 * sd_difference + 0.2 *min_difference + 0.3* max_difference +  0.4* root_mean_square_difference
-
-    return(loss_value)
-
-## Manually define a loss function -- I ended up not using this
-def custom_loss_function2(output, target):
-
-    mean_target = torch.mean(target)
-    square_difference = torch.square(output - target)
-    mean_square_difference = torch.mean(square_difference)
-    root_mean_square_difference =torch.sqrt(mean_square_difference)
-    relative_mean_square_difference = torch.div(root_mean_square_difference, mean_target)
-
-    min_output = torch.min(output)
-    min_target = torch.min(target)
-    min_difference = torch.abs( min_output - min_target)
-    relative_min_difference = torch.div(min_difference, mean_target)
-
-    max_output = torch.max(output)
-    max_target = torch.max(target)
-    max_difference = torch.abs( max_output - max_target)
-    relative_max_difference = torch.div(max_difference, mean_target)
-
-    sd_output = torch.std(output)
-    sd_target = torch.std(target)
-    sd_difference = torch.abs( sd_output - sd_target)
-    relative_sd_difference = torch.div(sd_difference, sd_target)
-    loss_value = 0.2 *relative_min_difference + 0.2* relative_max_difference +  0.6 * relative_mean_square_difference
-
-    return(loss_value)
+  def forward(self, x):
+    '''
+      Forward pass: feed the input data through the model (self.layers) and return the result
+    '''
+    return self.layers(x)
 
 
+'''
+Optimizing notes:
+- Using torch.Tensor instead of torch.from_numpy(): Instead of converting the numpy arrays to PyTorch tensors using 
+torch.from_numpy(), we can directly create PyTorch tensors from the numpy arrays using torch.Tensor(). This is 
+because torch.Tensor() automatically uses the same data type and device as the input array, which saves us from 
+having to call .cuda() later on.
+- Caching the scaled data: If the data needs to be scaled, it would be more efficient to cache the scaled data 
+instead of scaling it every time the dataset is initialized. This way, if the dataset is used multiple times, the 
+scaling is only done once.
+'''
+class BarraDataset(torch.utils.data.Dataset):
+    '''
+    Convert the data to the right format using a Torch Tensor.
+    '''
+    def __init__(self, X, y, scale_data=False):
+        self.X = torch.Tensor(X)
+        self.y = torch.Tensor(y)
+
+        if scale_data:
+            scaler = StandardScaler()
+            self.X = torch.Tensor(scaler.fit_transform(self.X.numpy()))
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        x = self.X[idx]
+        y = self.y[idx]
+        
+        return x, y
+
+'''
+Optimizing notes:
+- Usually good to check the input data for missing values and handle them appropriately before computing the performance 
+metrics. Currently, the function assumes that the input data is complete and does not check for missing values.
+- Instead of computing the descriptive statistics for the target and predicted values separately, we can compute them together 
+using the describe() function of the Pandas DataFrame. This can make the code more concise and easier to read.
+'''
+def testing_performance(test_df, current_model, year):
+    '''
+    Calculate the metric of performance prediction against target
+    '''
+    try:
+        test_df.dropna(inplace=True)
+    except:
+        raise ValueError('Input data contains missing values')
+    
+    kge, r, alpha, beta = he.evaluator(he.kge, test_df['target'].to_numpy(), test_df[current_model].to_numpy())
+    corr = test_df[['target', current_model]].corr().iloc[0, 1]
+    rmse = mean_squared_error(test_df['target'], test_df[current_model], squared=False)
+    describe_df = test_df[['target', current_model]].describe()
+
+    columns = ['year', 'kge', 'r', 'alpha', 'beta', 'cor', 'rmse', 'mean_target', 'mean_pred',
+               'std_target', 'std_pred', 'min_target', 'min_pred', '25%_target', '25%_pred',
+               '50%_target', '50%_pred', '75%_target', '75%_pred', 'max_target', 'max_pred']
+    data = [[year, kge, r, alpha, beta, corr, rmse] + describe_df.loc['mean':, col].tolist()
+            for col in ['target', current_model]]
+
+    eval_data = pd.DataFrame(data, columns=columns)
+
+    return eval_data
+
+def train_mlp(mlp, trainloader, optimizer, loss_function, seed, epoch_number, batch_size):
+    '''
+    Function that trains a model based on the input data, etc.
+    '''
+  
+    # Set fixed random number seed
+    torch.manual_seed(seed)
+    
+    # Check if GPU is available
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    mlp.to(device)  # Move the MLP model to GPU if available
+    
+    # Run the training loop
+    for epoch in range(epoch_number):
+        print(f'Starting epoch {epoch+1}')
+ 
+        # Iterate over the DataLoader for training data.
+        for i, data in enumerate(trainloader, 0):
+            # Get and prepare inputs
+            inputs, targets = data
+            # perform some conversions (e.g. Floating point conversion and reshaping) on the inputs and targets in the current batch
+            inputs, targets = inputs.float().to(device), targets.float().to(device)  # Move inputs and targets to GPU if available
+            targets = targets.reshape((targets.shape[0], 1))
+            
+            # Zero the gradients: knowledge of previous improvements (especially important in batch > 0 for every epoch) is no longer available
+            optimizer.zero_grad()
+            # Perform forward pass
+            outputs = mlp(inputs)
+            # Compute loss
+            loss = loss_function(outputs, targets)
+            # Perform backward pass
+            loss.backward()
+            # Perform optimization
+            optimizer.step()
+
+    print('Training process has finished.')
+    print('Number of epochs:', epoch+1 )
+
+    return mlp
