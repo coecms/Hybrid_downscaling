@@ -1,4 +1,7 @@
 # Hybrid Downscaling
+
+[![DOI](https://zenodo.org/badge/531778489.svg)](https://zenodo.org/doi/10.5281/zenodo.7663012)
+
 Downscaling climate model using GPU-enabled machine learning.
 
 Updated: 07/11/22
